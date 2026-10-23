@@ -1,0 +1,22 @@
+resources:
+  jobs:
+    rearc_data_trust:
+      name: rearc_data_quest_data_trust
+      description: Update the main pipeline and persist independent Gold validation evidence.
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: update_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.rearc_pipeline.id}
+            full_refresh: false
+
+        - task_key: validate_gold
+          depends_on:
+            - task_key: update_pipeline
+          notebook_task:
+            notebook_path: ../src/operations/validate_and_record.py
+            base_parameters:
+              validation_script: ${workspace.file_path}/tests/validate_gold.py
+              workflow_run_id: "{{job.run_id}}"
+          timeout_seconds: 1800
+          max_retries: 0

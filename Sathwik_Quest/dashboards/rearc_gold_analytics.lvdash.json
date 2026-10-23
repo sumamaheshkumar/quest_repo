@@ -1,0 +1,858 @@
+{
+  "datasets": [
+    {
+      "name": "297c92ff",
+      "displayName": "Population Statistics",
+      "queryLines": [
+        "SELECT\r\n",
+        "    run_id,\r\n",
+        "    start_year,\r\n",
+        "    end_year,\r\n",
+        "    distinct_year_count,\r\n",
+        "    mean_population,\r\n",
+        "    stddev_population\r\n",
+        "FROM workspace.rearc.gold_population_statistics;"
+      ]
+    },
+    {
+      "name": "bc485894",
+      "displayName": "Target Series and Population",
+      "queryLines": [
+        "SELECT\r\n",
+        "    run_id,\r\n",
+        "    series_id,\r\n",
+        "    year,\r\n",
+        "    period,\r\n",
+        "    value AS bls_value,\r\n",
+        "    population,\r\n",
+        "    population_status\r\n",
+        "FROM workspace.rearc.gold_target_series_population\r\n",
+        "ORDER BY year;"
+      ]
+    },
+    {
+      "name": "38b04002",
+      "displayName": "Best Year by Series",
+      "queryLines": [
+        "SELECT\r\n",
+        "    series_id,\r\n",
+        "    series_label,\r\n",
+        "    sector_name,\r\n",
+        "    measure_text,\r\n",
+        "    duration_text,\r\n",
+        "    seasonal_text,\r\n",
+        "    best_year,\r\n",
+        "    quarterly_value_sum,\r\n",
+        "    quarter_count,\r\n",
+        "    tied_year_count\r\n",
+        "FROM workspace.rearc.gold_best_year\r\n",
+        "WHERE result_status = 'AVAILABLE'\r\n",
+        "ORDER BY series_id;"
+      ]
+    },
+    {
+      "name": "779e9ad7",
+      "displayName": "Current Snapshot Validation",
+      "queryLines": [
+        "WITH current_snapshots AS (\r\n",
+        "    SELECT DISTINCT run_id\r\n",
+        "    FROM workspace.rearc.silver_snapshot_files\r\n",
+        "),\r\n",
+        "ranked_validation AS (\r\n",
+        "    SELECT\r\n",
+        "        *,\r\n",
+        "        ROW_NUMBER() OVER (\r\n",
+        "            PARTITION BY snapshot_run_id\r\n",
+        "            ORDER BY finished_at DESC, validation_id DESC\r\n",
+        "        ) AS rn\r\n",
+        "    FROM workspace.rearc_ops.validation_runs\r\n",
+        "    WHERE source_schema = 'workspace.rearc'\r\n",
+        ")\r\n",
+        "SELECT\r\n",
+        "    s.run_id AS snapshot_run_id,\r\n",
+        "    COALESCE(v.status, 'NOT_CHECKED') AS validation_status,\r\n",
+        "    v.started_at,\r\n",
+        "    v.finished_at AS last_validated_at,\r\n",
+        "    v.workflow_run_id,\r\n",
+        "    v.validation_id,\r\n",
+        "    v.validation_output,\r\n",
+        "    v.error_details\r\n",
+        "FROM current_snapshots s\r\n",
+        "LEFT JOIN ranked_validation v\r\n",
+        "    ON s.run_id = v.snapshot_run_id\r\n",
+        "   AND v.rn = 1;"
+      ]
+    },
+    {
+      "name": "e6a88f52",
+      "displayName": "Snapshot Freshness",
+      "queryLines": [
+        "WITH current_snapshots AS (\r\n",
+        "    SELECT DISTINCT run_id\r\n",
+        "    FROM workspace.rearc.silver_snapshot_files\r\n",
+        "),\r\n",
+        "manifests AS (\r\n",
+        "    SELECT\r\n",
+        "        run_id,\r\n",
+        "        MAX(completed_at) AS snapshot_completed_at\r\n",
+        "    FROM workspace.rearc.bronze_manifests\r\n",
+        "    WHERE status = 'published'\r\n",
+        "    GROUP BY run_id\r\n",
+        "),\r\n",
+        "population_coverage AS (\r\n",
+        "    SELECT\r\n",
+        "        run_id,\r\n",
+        "        MIN(year) AS population_first_year,\r\n",
+        "        MAX(year) AS population_latest_year,\r\n",
+        "        COUNT(DISTINCT year) AS population_year_count\r\n",
+        "    FROM workspace.rearc.silver_population\r\n",
+        "    WHERE nation_id = '01000US'\r\n",
+        "    GROUP BY run_id\r\n",
+        "),\r\n",
+        "bls_coverage AS (\r\n",
+        "    SELECT\r\n",
+        "        run_id,\r\n",
+        "        MIN(year) AS target_first_year,\r\n",
+        "        MAX(year) AS target_latest_year\r\n",
+        "    FROM workspace.rearc.gold_target_series_population\r\n",
+        "    GROUP BY run_id\r\n",
+        ")\r\n",
+        "SELECT\r\n",
+        "    s.run_id,\r\n",
+        "    m.snapshot_completed_at,\r\n",
+        "    p.population_first_year,\r\n",
+        "    p.population_latest_year,\r\n",
+        "    p.population_year_count,\r\n",
+        "    b.target_first_year,\r\n",
+        "    b.target_latest_year\r\n",
+        "FROM current_snapshots s\r\n",
+        "LEFT JOIN manifests m ON s.run_id = m.run_id\r\n",
+        "LEFT JOIN population_coverage p ON s.run_id = p.run_id\r\n",
+        "LEFT JOIN bls_coverage b ON s.run_id = b.run_id;"
+      ]
+    },
+    {
+      "name": "60f3f342",
+      "displayName": "Population Match Coverage",
+      "queryLines": [
+        "SELECT\r\n",
+        "    run_id,\r\n",
+        "    population_status,\r\n",
+        "    COUNT(*) AS observation_count\r\n",
+        "FROM workspace.rearc.gold_target_series_population\r\n",
+        "GROUP BY run_id, population_status;"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "6eaf33d8",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "mean-us-population-2013-2018",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "297c92ff",
+                  "fields": [
+                    {
+                      "name": "max(mean_population)",
+                      "expression": "MAX(`mean_population`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showDescription": false,
+                "showTitle": true,
+                "title": {
+                  "value": "Mean US Population (2013–2018)",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(mean_population)"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "population-standard-deviation-2013-2018",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "297c92ff",
+                  "fields": [
+                    {
+                      "name": "max(stddev_population)",
+                      "expression": "MAX(`stddev_population`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Population Standard Deviation (2013–2018)",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(stddev_population)"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "years-analyzed-2013-2018",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "297c92ff",
+                  "fields": [
+                    {
+                      "name": "max(distinct_year_count)",
+                      "expression": "MAX(`distinct_year_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Years Analyzed (2013–2018)",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(distinct_year_count)"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "prs30006032-q01-value-by-year",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "bc485894",
+                  "fields": [
+                    {
+                      "name": "year",
+                      "expression": "`year`"
+                    },
+                    {
+                      "name": "max(bls_value)",
+                      "expression": "MAX(`bls_value`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "PRS30006032 — Q01 Value by Year",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "year",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "max(bls_value)",
+                  "displayName": "BLS Value",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "best-year-bls-series",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "38b04002",
+                  "fields": [
+                    {
+                      "name": "series_id",
+                      "expression": "`series_id`"
+                    },
+                    {
+                      "name": "best_year",
+                      "expression": "`best_year`"
+                    },
+                    {
+                      "name": "quarterly_value_sum",
+                      "expression": "`quarterly_value_sum`"
+                    },
+                    {
+                      "name": "quarter_count",
+                      "expression": "`quarter_count`"
+                    },
+                    {
+                      "name": "tied_year_count",
+                      "expression": "`tied_year_count`"
+                    },
+                    {
+                      "name": "series_label",
+                      "expression": "`series_label`"
+                    },
+                    {
+                      "name": "sector_name",
+                      "expression": "`sector_name`"
+                    },
+                    {
+                      "name": "measure_text",
+                      "expression": "`measure_text`"
+                    },
+                    {
+                      "name": "duration_text",
+                      "expression": "`duration_text`"
+                    },
+                    {
+                      "name": "seasonal_text",
+                      "expression": "`seasonal_text`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Best Year by BLS Series",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "series_id"
+                  },
+                  {
+                    "fieldName": "best_year"
+                  },
+                  {
+                    "fieldName": "quarterly_value_sum"
+                  },
+                  {
+                    "fieldName": "quarter_count"
+                  },
+                  {
+                    "fieldName": "tied_year_count"
+                  },
+                  {
+                    "fieldName": "series_label"
+                  },
+                  {
+                    "fieldName": "sector_name"
+                  },
+                  {
+                    "fieldName": "measure_text"
+                  },
+                  {
+                    "fieldName": "duration_text"
+                  },
+                  {
+                    "fieldName": "seasonal_text"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "62d37016",
+            "multilineTextboxSpec": {
+              "lines": [
+                "Population statistics cover 2013–2018. The chart shows Q01 observations for series PRS30006032. Best-year results are available for 237 series; 45 additional series have no quarterly data. Population matches exist for 11 of the 39 target-series observations; missing values are not treated as zero."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 30,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "q01-bls-values-us-population-by-year",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "bc485894",
+                  "fields": [
+                    {
+                      "name": "year",
+                      "expression": "`year`"
+                    },
+                    {
+                      "name": "series_id",
+                      "expression": "`series_id`"
+                    },
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    },
+                    {
+                      "name": "bls_value",
+                      "expression": "`bls_value`"
+                    },
+                    {
+                      "name": "population",
+                      "expression": "`population`"
+                    },
+                    {
+                      "name": "population_status",
+                      "expression": "`population_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Q01 BLS Values and US Population by Year",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "year"
+                  },
+                  {
+                    "fieldName": "series_id"
+                  },
+                  {
+                    "fieldName": "period"
+                  },
+                  {
+                    "fieldName": "bls_value"
+                  },
+                  {
+                    "fieldName": "population"
+                  },
+                  {
+                    "fieldName": "population_status"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 10
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "935b431d",
+      "displayName": "Data Trust",
+      "layout": [
+        {
+          "widget": {
+            "name": "validation-of-current-snapshot",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "779e9ad7",
+                  "fields": [
+                    {
+                      "name": "validation_status",
+                      "expression": "`validation_status`"
+                    },
+                    {
+                      "name": "last_validated_at",
+                      "expression": "`last_validated_at`"
+                    },
+                    {
+                      "name": "snapshot_run_id",
+                      "expression": "`snapshot_run_id`"
+                    },
+                    {
+                      "name": "workflow_run_id",
+                      "expression": "`workflow_run_id`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Validation of Current Snapshot",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "validation_status"
+                  },
+                  {
+                    "fieldName": "last_validated_at"
+                  },
+                  {
+                    "fieldName": "snapshot_run_id"
+                  },
+                  {
+                    "fieldName": "workflow_run_id"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "independent-calculation-checks",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "779e9ad7",
+                  "fields": [
+                    {
+                      "name": "validation_output",
+                      "expression": "`validation_output`"
+                    },
+                    {
+                      "name": "error_details",
+                      "expression": "`error_details`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "**Independent Calculation Checks**",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "validation_output"
+                  },
+                  {
+                    "fieldName": "error_details"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "snapshot-source-coverage",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e6a88f52",
+                  "fields": [
+                    {
+                      "name": "snapshot_completed_at",
+                      "expression": "`snapshot_completed_at`"
+                    },
+                    {
+                      "name": "population_first_year",
+                      "expression": "`population_first_year`"
+                    },
+                    {
+                      "name": "population_latest_year",
+                      "expression": "`population_latest_year`"
+                    },
+                    {
+                      "name": "population_year_count",
+                      "expression": "`population_year_count`"
+                    },
+                    {
+                      "name": "target_first_year",
+                      "expression": "`target_first_year`"
+                    },
+                    {
+                      "name": "target_latest_year",
+                      "expression": "`target_latest_year`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Snapshot and Source Coverage",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "snapshot_completed_at"
+                  },
+                  {
+                    "fieldName": "population_first_year"
+                  },
+                  {
+                    "fieldName": "population_latest_year"
+                  },
+                  {
+                    "fieldName": "population_year_count"
+                  },
+                  {
+                    "fieldName": "target_first_year"
+                  },
+                  {
+                    "fieldName": "target_latest_year"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "population-matches-bls-observations",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "60f3f342",
+                  "fields": [
+                    {
+                      "name": "population_status",
+                      "expression": "`population_status`"
+                    },
+                    {
+                      "name": "sum(observation_count)",
+                      "expression": "SUM(`observation_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Population Matches Across BLS Observations",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "population_status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(observation_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "75b79e9a",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**How to interpret this page**\n",
+                "\n",
+                "Validation compares Gold outputs with independent PySpark calculations and Python population statistics. PASS describes the recorded validation execution; it does not establish upstream source completeness or the success of later workflow attempts.\n",
+                "\n",
+                "Snapshot completion time is separate from validation time. Source year ranges describe available observations and may contain gaps.\n",
+                "\n",
+                "Population is matched to BLS observations by snapshot and year. Missing matches remain NULL and are not treated as zero."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

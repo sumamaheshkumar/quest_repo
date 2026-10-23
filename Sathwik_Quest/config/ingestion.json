@@ -1,0 +1,13 @@
+{
+  "databricks_profile": "rearc",
+  "volume_root": "dbfs:/Volumes/workspace/rearc/raw",
+  "bls_directory_url": "https://download.bls.gov/pub/time.series/pr/",
+  "population_url": "https://honolulu-api.datausa.io/tesseract/data.jsonrecords?cube=acs_yg_total_population_1&drilldowns=Year%2CNation&locale=en&measures=Population",
+  "contact_email_env": "BLS_CONTACT_EMAIL",
+  "http": {
+    "connect_timeout_seconds": 10,
+    "read_timeout_seconds": 60,
+    "max_retries": 3,
+    "backoff_factor": 1.0
+  }
+}
